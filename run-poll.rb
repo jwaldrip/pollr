@@ -13,7 +13,7 @@ class RunPoll < MiniTest::Test
     Capybara.register_driver :chrome do |app|
       Capybara::Selenium::Driver.new(app, :browser => :chrome)
     end
-    Capybara.current_driver = :chrome
+    Capybara.current_driver = ENV['CI'] ? :webkit : :chrome
   end
 
   def test_poll
