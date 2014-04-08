@@ -14,6 +14,7 @@ class RunPoll < MiniTest::Test
       Capybara::Selenium::Driver.new(app, :browser => :chrome)
     end
     Capybara.current_driver = ENV['CI'] ? :webkit : :chrome
+    page.driver.header 'Referer', 'https://www.facebook.com/'
   end
 
   def test_poll
