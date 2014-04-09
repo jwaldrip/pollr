@@ -1,15 +1,43 @@
 require 'bundler/setup'
-require "minitest/autorun"
-
+require 'active_support/all'
 Bundler.require :default
 
-class RunPoll < MiniTest::Test
+class Pollr
   include Capybara::DSL
 
   SECRET_LINK     = 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
   SECRET_SELECTOR = 'MTAxLiBLcmlzdGVuIEphY29icyAmIEphc29uIFdhbGRyaXA='
 
-  def setup
+  class << self
+
+    attr_accessor :matrix
+
+    def run
+      new.take_poll
+    end
+
+  end
+
+  delegate :matrix, :matrix=, to: self
+  self.matrix = {}
+
+  def take_poll
+    visit link
+    sleep 0.01 until choice_exists?(selector)
+    choose(selector)
+    all('.pds-vote a').find { |btn| btn.text == 'Vote' }.click
+    sleep 0.01 until update_matrix!.present?
+    bcts = 1.upto(place - 1).map do |place|
+      "  behind place #{place} by #{behind_place_by place}"
+    end
+    bcts = ["  ahead by #{ahead_next_place_by}"] unless bcts.present?
+    puts "votes: #{votes}, place: #{place}\n", *bcts
+  end
+
+  private
+
+  def initialize
+    sleep 30.seconds if place == 1 && ahead_next_place_by > 200
     Capybara.register_driver :chrome do |app|
       Capybara::Selenium::Driver.new(app, :browser => :chrome)
     end
@@ -19,22 +47,24 @@ class RunPoll < MiniTest::Test
     else
       Capybara.current_driver = :chrome
     end
+    clear_cookies!
   end
 
-  def test_poll
-    visit link
-    click_link('View Results')
-    nil until get_votes
-    original_votes = get_votes
-    click_link('Return To Poll')
-    nil until choice_exists?(selector)
-    choose(selector)
-    all('.pds-vote a').find { |btn| btn.text == 'Vote' }.click
-    nil until get_votes
-    assert_operator get_votes, :>, original_votes
+  def clear_cookies!
+    if browser.respond_to?(:clear_cookies)
+      # Rack::MockSession
+      browser.clear_cookies
+    elsif browser.respond_to?(:manage) && browser.manage.respond_to?(:delete_all_cookies)
+      # Selenium::WebDriver
+      browser.manage.delete_all_cookies
+    else
+      raise "Don't know how to clear cookies. Weird driver?"
+    end
   end
 
-  private
+  def browser
+    Capybara.current_session.driver.browser
+  end
 
   def link
     Base64.decode64 SECRET_LINK
@@ -44,10 +74,34 @@ class RunPoll < MiniTest::Test
     Base64.decode64 SECRET_SELECTOR
   end
 
-  def get_votes
-    all('div.pds-feedback-group').find { |div| div.text =~ /#{selector}/ }.first('.pds-feedback-votes').text.sub(/\(((\d,?)+).*/, '\\1').gsub(/,/, '').to_i
+  def place
+    matrix.find { |k, v| v.text =~ /#{selector}/ }.first
   rescue
-    nil
+    9999
+  end
+
+  def votes
+    votes_for_place place
+  end
+
+  def ahead_next_place_by
+    votes - votes_for_place(place + 1)
+  end
+
+  def behind_place_by(place)
+    votes_for_place(place) - votes
+  end
+
+  def votes_for_place(place)
+    matrix[place].first('.pds-feedback-votes').text.sub(/\(((\d,?)+).*/, '\\1').gsub(/,/, '').to_i
+  rescue
+    0
+  end
+
+  def update_matrix!
+    self.matrix = Hash[all('div.pds-feedback-group').each_with_index.map { |f, i| [(i + 1), f ] }]
+  rescue
+    self.matrix = {}
   end
 
   def choice_exists?(selector)
@@ -60,3 +114,5 @@ class RunPoll < MiniTest::Test
   end
 
 end
+
+Pollr.run while true
