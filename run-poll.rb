@@ -6,7 +6,7 @@ Bundler.require :default
 class RunPoll < MiniTest::Test
   include Capybara::DSL
 
-  SECRET_LINK = 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
+  SECRET_LINK     = 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
   SECRET_SELECTOR = 'MTAxLiBLcmlzdGVuIEphY29icyAmIEphc29uIFdhbGRyaXA='
 
   def setup
@@ -24,13 +24,13 @@ class RunPoll < MiniTest::Test
   def test_poll
     visit link
     click_link('View Results')
-    sleep 5
+    nil until get_votes
     original_votes = get_votes
     click_link('Return To Poll')
-    sleep 5
+    nil until choice_exists?(selector)
     choose(selector)
     all('.pds-vote a').find { |btn| btn.text == 'Vote' }.click
-    sleep 5
+    nil until get_votes
     assert_operator get_votes, :>, original_votes
   end
 
@@ -45,7 +45,13 @@ class RunPoll < MiniTest::Test
   end
 
   def get_votes
-    all('div.pds-feedback-group').find { |div| div.text =~ /#{selector}/ }.first('.pds-feedback-votes').text.sub(/\((\d+).*/, '\\1').to_i
+    all('div.pds-feedback-group').find { |div| div.text =~ /#{selector}/ }.first('.pds-feedback-votes').text.sub(/\(((\d,?)+).*/, '\\1').gsub(/,/, '').to_i
+  rescue
+    nil
+  end
+
+  def choice_exists?(selector)
+    !!all('.pds-answer-group').find { |div| div.text =~ /#{selector}/ }
   end
 
   def teardown
