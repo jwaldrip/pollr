@@ -75,7 +75,7 @@ class Pollr
   end
 
   def clear_cookies!
-    browser.cookies.clear
+    page.driver.browser.reset
   end
 
   def choice_exists?(selector)
