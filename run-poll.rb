@@ -63,13 +63,19 @@ class Pollr
   # Helpers
 
   def initialize
-    Capybara.current_driver = :webkit
-    page.driver.header 'Referer', 'https://www.facebook.com/'
+    Capybara.register_driver :poltergeist do |app|
+      options = {
+        phantomjs_logger: '/dev/null'
+      }
+      Capybara::Poltergeist::Driver.new(app, options)
+    end
+    Capybara.current_driver = :poltergeist
+    page.driver.add_headers 'Referer' => 'https://www.facebook.com/'
     clear_cookies!
   end
 
   def clear_cookies!
-    browser.clear_cookies
+    browser.cookies.clear
   end
 
   def choice_exists?(selector)
