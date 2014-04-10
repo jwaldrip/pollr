@@ -25,7 +25,7 @@ class Pollr
     end
 
     def target_lead
-      ENV['LEAD'].to_i || 10
+      ENV['LEAD'].to_i || 100
     end
 
   end
