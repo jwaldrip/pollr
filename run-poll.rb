@@ -72,7 +72,6 @@ class Pollr
   # Helpers
 
   def initialize
-    GC.start
     Capybara.register_driver :poltergeist do |app|
       options = {
         phantomjs_logger: '/dev/null'
