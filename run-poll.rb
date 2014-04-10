@@ -1,3 +1,4 @@
+STDOUT.sync = true
 require 'bundler/setup'
 require 'active_support/all'
 Bundler.require :default
