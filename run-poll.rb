@@ -1,83 +1,97 @@
 require 'bundler/setup'
 require 'active_support/all'
 Bundler.require :default
+I18n.enforce_available_locales = false
 
 class Pollr
   include Capybara::DSL
 
-  SECRET_LINK     = 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
-  SECRET_SELECTOR = 'MTAxLiBLcmlzdGVuIEphY29icyAmIEphc29uIFdhbGRyaXA='
+  LINK = Base64.decode64 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
 
   class << self
 
-    attr_accessor :matrix
+    attr_accessor :polls
 
     def run
       new.take_poll
     end
 
+    def target_name
+      ENV['NAME'] || fail('missing a name to vote for')
+    end
+
+    def target_place
+      ENV['PLACE'].to_i || fail('missing a target place')
+    end
+
+    def target_lead
+      ENV['LEAD'].to_i || 10
+    end
+
   end
 
-  delegate :matrix, :matrix=, to: self
-  self.matrix = {}
+  delegate :target_name, :target_place, :target_lead, :polls, :polls=, to: self
+  self.polls = {}
 
   def take_poll
-    visit link
-    sleep 0.01 until choice_exists?(selector)
-    choose(selector)
-    all('.pds-vote a').find { |btn| btn.text == 'Vote' }.click
-    sleep 0.01 until update_matrix!.present?
-    bcts = 1.upto(place - 1).map do |place|
-      "  behind place #{place} by #{behind_place_by place}"
+    visit LINK
+    if place <= target_place && ahead_next_place_by >= target_lead
+      sleep 5.seconds
+      click_link 'View Results'
+    else
+      sleep 0.01 until choice_exists?(target_name)
+      choose(target_name)
+      all('.pds-vote a').find { |btn| btn.text == 'Vote' }.click
     end
-    bcts = ["  ahead by #{ahead_next_place_by}"] unless bcts.present?
-    puts "votes: #{votes}, place: #{place}\n", *bcts
+    sleep 0.01 until update_polls!.present?
+    display_results
   end
 
   private
 
+  def display_results
+    in_relation_ary    = target_place.upto(place - 1).map do |place|
+      "behind #{name_in_place place} in #{place.ordinalize} place by #{behind_place_by place} votes"
+    end.reverse
+    in_relation_ary    = ["ahead of #{name_in_next_place} by #{ahead_next_place_by} votes"] unless in_relation_ary.present?
+    in_relation_string = in_relation_ary.to_sentence(words_connector: ", \n  ", last_word_connector: "\n  and ", two_words_connector: "\n  and ")
+    puts "#{name.green} have #{votes.to_s.green} votes at " + "#{place.ordinalize} place".blue,
+         "  and are #{in_relation_string}",
+         nil
+  end
+
+  # Helpers
+
   def initialize
-    sleep 30.seconds if place == 1 && ahead_next_place_by > 200
-    Capybara.register_driver :chrome do |app|
-      Capybara::Selenium::Driver.new(app, :browser => :chrome)
-    end
-    if ENV['CI']
-      Capybara.current_driver = :webkit
-      page.driver.header 'Referer', 'https://www.facebook.com/'
-    else
-      Capybara.current_driver = :chrome
-    end
+    Capybara.current_driver = :webkit
+    page.driver.header 'Referer', 'https://www.facebook.com/'
     clear_cookies!
   end
 
   def clear_cookies!
-    if browser.respond_to?(:clear_cookies)
-      # Rack::MockSession
-      browser.clear_cookies
-    elsif browser.respond_to?(:manage) && browser.manage.respond_to?(:delete_all_cookies)
-      # Selenium::WebDriver
-      browser.manage.delete_all_cookies
-    else
-      raise "Don't know how to clear cookies. Weird driver?"
-    end
+    browser.clear_cookies
+  end
+
+  def choice_exists?(selector)
+    !!all('.pds-answer-group').find { |div| div.text =~ /#{selector}/ }
   end
 
   def browser
     Capybara.current_session.driver.browser
   end
 
-  def link
-    Base64.decode64 SECRET_LINK
-  end
-
-  def selector
-    Base64.decode64 SECRET_SELECTOR
-  end
+  # Readers
 
   def place
-    matrix.find { |k, v| v.text =~ /#{selector}/ }.first
-  rescue
-    9999
+    polls.keys.find { |place| in_place(place)[:name] =~ /#{target_name}/ } || Float::INFINITY
+  end
+
+  def name
+    name_in_place place
+  end
+
+  def name_in_place(place)
+    in_place(place)[:name]
   end
 
   def votes
@@ -88,29 +102,33 @@ class Pollr
     votes - votes_for_place(place + 1)
   end
 
+  def name_in_next_place
+    name_in_place place + 1
+  end
+
   def behind_place_by(place)
     votes_for_place(place) - votes
   end
 
   def votes_for_place(place)
-    matrix[place].first('.pds-feedback-votes').text.sub(/\(((\d,?)+).*/, '\\1').gsub(/,/, '').to_i
+    in_place(place)[:votes] || 0
+  end
+
+  # Scoreboard
+  def in_place(place)
+    polls[place] || {}
+  end
+
+  def update_polls!
+    self.polls = all('div.pds-feedback-group').each_with_index.reduce({}) do |hash, (element, i)|
+      place = i + 1
+      hash.merge place => {
+        name:  element.first('.pds-answer-text').text.sub(/\d+\.\s*/, ''),
+        votes: element.first('.pds-feedback-votes').text.sub(/\(((\d,?)+).*/, '\\1').gsub(/,/, '').to_i
+      }
+    end
   rescue
-    0
-  end
-
-  def update_matrix!
-    self.matrix = Hash[all('div.pds-feedback-group').each_with_index.map { |f, i| [(i + 1), f ] }]
-  rescue
-    self.matrix = {}
-  end
-
-  def choice_exists?(selector)
-    !!all('.pds-answer-group').find { |div| div.text =~ /#{selector}/ }
-  end
-
-  def teardown
-    Capybara.reset_sessions!
-    Capybara.use_default_driver
+    self.polls = {}
   end
 
 end
