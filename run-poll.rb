@@ -8,10 +8,18 @@ class Pollr
   include Capybara::DSL
 
   LINK = Base64.decode64 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
+  CACHE = ActiveSupport::Cache.lookup_store :file_store, './tmp/cache'
 
   class << self
 
-    attr_accessor :polls
+    def polls
+      CACHE.read :polls
+    end
+
+    def polls=(value)
+      CACHE.write :polls, value
+      value
+    end
 
     def run
       new.take_poll
@@ -36,7 +44,7 @@ class Pollr
 
   def take_poll
     visit LINK
-    if place <= target_place && ahead_next_place_by >= target_lead
+    if polls.empty? || (place <= target_place && ahead_next_place_by >= target_lead)
       sleep 5.seconds
       click_link 'View Results'
     else
@@ -64,6 +72,7 @@ class Pollr
   # Helpers
 
   def initialize
+    GC.start
     Capybara.register_driver :poltergeist do |app|
       options = {
         phantomjs_logger: '/dev/null'
@@ -139,5 +148,8 @@ class Pollr
   end
 
 end
-
-Pollr.run while true
+start_of_run = Time.now
+(0..Float::INFINITY).lazy.each do
+  exit(0) if Time.now - start_of_run > 1.hour
+  Pollr.run
+end
