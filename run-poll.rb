@@ -7,7 +7,7 @@ I18n.enforce_available_locales = false
 class Pollr
   include Capybara::DSL
 
-  LINK = Base64.decode64 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
+  LINK  = Base64.decode64 'aHR0cDovL2VsZXZhdGVwaG90b2dyYXBoeS5jb20vYmxvZy8yMDEzLWVuZ2FnZW1lbnQtc2hvb3QtY29udGVzdC12b3RlLWZhdm9yaXRlLw=='
   CACHE = ActiveSupport::Cache.lookup_store :file_store, './tmp/cache'
 
   class << self
@@ -23,6 +23,8 @@ class Pollr
 
     def run
       new.take_poll
+    rescue => e
+      puts 'failed: ' + e.message
     end
 
     def target_name
@@ -37,9 +39,13 @@ class Pollr
       ENV['LEAD'].to_i || 100
     end
 
+    def proxies
+      YAML.load_file('proxies.yml')
+    end
+
   end
 
-  delegate :target_name, :target_place, :target_lead, :polls, :polls=, to: self
+  delegate :proxies, :target_name, :target_place, :target_lead, :polls, :polls=, to: self
   self.polls = {}
 
   def take_poll
@@ -54,6 +60,10 @@ class Pollr
     end
     sleep 0.01 until update_polls!.present?
     display_results
+  end
+
+  def proxy
+    @proxy ||= proxies.sample
   end
 
   private
@@ -72,9 +82,16 @@ class Pollr
   # Helpers
 
   def initialize
+    puts 'using proxy: ' + proxy
     Capybara.register_driver :poltergeist do |app|
       options = {
-        phantomjs_logger: '/dev/null'
+        phantomjs_logger:  '/dev/null',
+        phantomjs_options: [
+                             '--load-images=no',
+                             '--ignore-ssl-errors=yes',
+                             "--proxy=#{proxy}"
+                           ]
+
       }
       Capybara::Poltergeist::Driver.new(app, options)
     end
